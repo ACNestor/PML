@@ -1,0 +1,94 @@
+**Predicting the personal activity efficiency with accelerometer data **
+========================================================================
+
+*By Néstor Alonso*
+
+
+### Introduction 
+
+In this report it is described how the performance of certain kind of personal activity (barbell lifts) can be predicted with data registered by devices that quantify movements via accelerometers. 
+
+In particular, data from accelerometers located on the belt, forearm, arm, and dumbell have been used in order to predict how well the six participants who participated in the experiment perform the aforementioned activities.
+
+### Getting and reading the data
+
+The data used for this analysis can be downloaded from [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) (training set) and [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv) (test set). The test set is no needed for this analysis so it will not be loaded. Instead, a proper test set will be created for model validating purposes.
+
+A full description of the data can be found [here](http://groupware.les.inf.puc-rio.br/har). For more background please refer to this publication:
+
+*Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6*
+
+The very first steps are downloading the training data set, then loading it into R and splitting it into the proper train (70% size) and test (30% size) sets that will be used at model training and testing, respectively. Next, having a primary look at the variables in order to figure out what kind of analysis and preprocessing (if required) should be performed afterwards.
+
+```{r}
+setwd("C://Users//nestor.alonso//Documents//01.Data Science//Coursera//07.Practical Machine Learning")
+#install.packages("curl")
+#install.packages("corrplot")
+#install.packages("knitr")
+library(knitr)
+library(corrplot)
+library(curl)
+library(data.table)
+library(caret)
+#Data loading, overview and cleaning
+
+datatrain <- fread("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", 
+               header=TRUE, stringsAsFactors=FALSE, 
+               na.strings = c(''), sep = ",")
+
+set.seed(279137515)
+intr <- createDataPartition(y=datatrain$classe, p=0.7, list=FALSE)
+dataTr <- datatrain[intr, ]
+dataTe <- datatrain[-intr, ]
+
+str(dataTr); table(dataTr$classe);
+
+missTable<-data.table(cbind(colnames(dataTr),colSums(is.na(dataTr)))) 
+missTablemiss<-missTable[missTable$V2>0,]
+
+```
+
+
+There are 33 variables with nearly 98% of missing values, it has been decided not to take these variables into account. Also, non-numeric variables are not taking into account, because the objective of the analysis is to predict the performance on barbell lifting with data from the devices (therefore, quantitative data). Finally, three variables are removed because it is considered that they are descriptive variables: ```raw_timestamp_part_1```, ```raw_timestamp_part_2``` and ```num_window```.
+
+The final data set has 53 variables: 52 predictors, and one outcome variable. Also, a correlation plot of all the possible predictors is performed. Finally, all the conclusions obtained for the training set are applied to the test set too.
+
+
+```{r}
+YTr <- dataTr$classe
+YTe <- dataTe$classe
+
+toremove_NA<-missTablemiss$V1
+dataTr <- dataTr[, !toremove_NA, with=FALSE]
+dataTr <- dataTr[, sapply(dataTr,is.numeric), with=FALSE]
+dataTr$raw_timestamp_part_1 <- NULL
+dataTr$raw_timestamp_part_2 <- NULL
+dataTr$num_window <- NULL
+dataTr$classe <- YTr
+
+corrPlot <- cor(dataTr[, !c("classe"), with=FALSE])
+corrplot(corrPlot, method="shade")
+
+dataTe <- dataTe[, !toremove_NA, with=FALSE]
+dataTe <- dataTe[, sapply(dataTe,is.numeric), with=FALSE]
+dataTe$raw_timestamp_part_1 <- NULL
+dataTe$raw_timestamp_part_2 <- NULL
+dataTe$num_window <- NULL
+dataTe$classe <- YTe
+
+```
+
+Two different approaches have been tried for modeling purposes: Random Forest and gbm. Both of them are trained performing an 8-fold cross validation. Next, the test set is predicted with both models in order to compare both techniques' predictive power and thus decide. Accuracy value is 0.9922 and 0.9611 for GBM, so the decision is to use Random Forest as the predictor. 
+
+```{r}
+forCV <- trainControl(method="cv", 8)
+RF_fit <- train(classe ~ ., data=dataTr, method="rf", trControl=forCV)
+GBM_fit <- train(classe ~ ., data=dataTr, method="gbm", trControl=forCV)
+
+RF_pred <- predict(RF_fit, dataTe)
+GBM_pred <- predict(GBM_fit, dataTe)
+
+confusionMatrix(dataTe$classe, RF_pred)
+confusionMatrix(dataTe$classe, GBM_pred)
+```
+
